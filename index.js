@@ -17,11 +17,7 @@ const app = express();
 // middleware
 app.use(
   cors({
-    origin: [
-      "http://localhost:5173",
-      "http://localhost:5174",
-      "https://b12-m11-session.web.app",
-    ],
+    origin: [process.env.CLIENT_DOMAIN],
     credentials: true,
     optionSuccessStatus: 200,
   })
@@ -83,18 +79,38 @@ async function run() {
     // --Payment endpoints
     app.post("/create-checkout-session", async (req, res) => {
       const paymentInfo = req.body;
-      console.log(paymentInfo)
-      res.send(paymentInfo)
+
       const session = await stripe.checkout.sessions.create({
-        success_url: "https://example.com/success",
+        // success_url: "https://example.com/success",
         line_items: [
           {
-            price_data: {},
-            quantity: 1,
+            price_data: {
+              currency: "usd",
+              product_data: {
+                name: paymentInfo?.name,
+                description: paymentInfo?.description,
+                images: [paymentInfo?.image],
+              },
+              unit_amount: paymentInfo?.contestFee * 100,
+            },
+            quantity: paymentInfo?.participantsCount,
           },
         ],
+        customer_email: paymentInfo?.participant?.email,
         mode: "payment",
+        metadata: {
+          contestId: paymentInfo?.contestId,
+          participant: paymentInfo?.participant?.email,
+          // contestCreator: paymentInfo?.contestCreator,
+          // contestCreator: {
+          //   name: paymentInfo?.contestCreator?.name,
+          //   email: paymentInfo?.contestCreator?.email,
+          // },
+        },
+        success_url: `${process.env.CLIENT_DOMAIN}/payment-success`,
+        cancel_url: `${process.env.CLIENT_DOMAIN}/contest/${paymentInfo.contestId}`,
       });
+      res.send({ url: session.url });
     });
 
     // Send a ping to confirm a successful connection
