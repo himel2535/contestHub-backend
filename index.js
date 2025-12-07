@@ -43,6 +43,7 @@ const verifyJWT = async (req, res, next) => {
   }
 }
 
+// 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(process.env.MONGODB_URI, {
   serverApi: {
