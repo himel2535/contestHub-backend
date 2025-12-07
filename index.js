@@ -43,7 +43,7 @@ const verifyJWT = async (req, res, next) => {
   }
 }
 
-// 
+ 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(process.env.MONGODB_URI, {
   serverApi: {
@@ -54,6 +54,29 @@ const client = new MongoClient(process.env.MONGODB_URI, {
 })
 async function run() {
   try {
+
+    const db=client.db('contests_db')
+    const contestsCollection=db.collection("contests")
+
+    // --add contests by contest creator--
+    app.post("/contests",async(req,res)=>{
+      const contestData=req.body
+      console.log(contestData)
+      const result=await contestsCollection.insertOne(contestData)
+      res.send(result)
+     
+    })
+
+    // --get contests by user--
+    app.get("/contests",async(req,res)=>{
+      const result=await contestsCollection.find().toArray()
+      res.send(result)
+    })
+
+
+
+
+
     // Send a ping to confirm a successful connection
     await client.db('admin').command({ ping: 1 })
     console.log(
