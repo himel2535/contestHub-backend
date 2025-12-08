@@ -8,7 +8,9 @@ const admin = require("firebase-admin");
 const port = process.env.PORT || 3000;
 
 // Firebase setup
-const decoded = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString("utf-8");
+const decoded = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString(
+  "utf-8"
+);
 const serviceAccount = JSON.parse(decoded);
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -66,8 +68,11 @@ async function run() {
     app.get("/contest/:id", async (req, res) => {
       try {
         const id = req.params.id;
-        const result = await contestsCollection.findOne({ _id: new ObjectId(id) });
-        if (!result) return res.status(404).send({ error: "Contest not found" });
+        const result = await contestsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+        if (!result)
+          return res.status(404).send({ error: "Contest not found" });
         if (result.deadline) result.deadline = result.deadline.toISOString();
         res.send(result);
       } catch (err) {
@@ -138,8 +143,12 @@ async function run() {
         const contestId = session.metadata.contestId;
         const participantEmail = session.metadata.participant;
 
-        const contest = await contestsCollection.findOne({ _id: new ObjectId(contestId) });
-        const order = await ordersCollection.findOne({ transactionId: session.payment_intent });
+        const contest = await contestsCollection.findOne({
+          _id: new ObjectId(contestId),
+        });
+        const order = await ordersCollection.findOne({
+          transactionId: session.payment_intent,
+        });
 
         if (session.status === "complete" && contest && !order) {
           const orderInfo = {
@@ -163,10 +172,16 @@ async function run() {
             }
           );
 
-          return res.send({ transactionId: session.payment_intent, orderId: result.insertedId });
+          return res.send({
+            transactionId: session.payment_intent,
+            orderId: result.insertedId,
+          });
         }
 
-        return res.send({ transactionId: session.payment_intent, orderId: order?._id });
+        return res.send({
+          transactionId: session.payment_intent,
+          orderId: order?._id,
+        });
       } catch (error) {
         res.status(500).send({ error: "Payment processing failed." });
       }
@@ -177,6 +192,28 @@ async function run() {
       const { contestId, task, email } = req.body;
       const submission = { contestId, email, task, submittedAt: new Date() };
       const result = await submissionsCollection.insertOne(submission);
+      res.send(result);
+    });
+
+    // get all participation for participant
+    app.get("/my-contests/:email", async (req, res) => {
+      const email = req.params.email;
+      const result = await ordersCollection
+        .find({
+          participant: email,
+        })
+        .toArray();
+      res.send(result);
+    });
+
+    // get all participation manage sata for contest creator
+    app.get("/manage-contests/:email", async (req, res) => {
+      const email = req.params.email;
+      const result = await ordersCollection
+        .find({
+          "contestCreator.email": email,
+        })
+        .toArray();
       res.send(result);
     });
 
