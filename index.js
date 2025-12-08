@@ -109,35 +109,109 @@ async function run() {
       res.send({ url: session.url });
     });
 
+    // app.post("/payment-success", async (req, res) => {
+    //   const { sessionId } = req.body;
+    //   const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+    //   const contest = await contestsCollection.findOne({
+    //     _id: new ObjectId(session.metadata.contestId),
+    //   });
+
+    //   const order = await ordersCollection.findOne({
+    //     transactionId: session.payment_intent,
+    //   });
+
+    //   console.log(session);
+    //   if (session.status === "complete" && contest && !order) {
+    //     const orderInfo = {
+    //       contestId: session.metadata.contestId,
+    //       transactionId: session.payment_intent,
+    //       participant: session.metadata.participant,
+    //       status: "pending",
+    //       contestCreator: contest.contestCreator,
+    //       name: contest.name,
+    //       category: contest.category,
+    //       participantCount: 1,
+    //       contestFee: session.amount_total / 100,
+    //     };
+    //     console.log(orderInfo);
+    //     const result = await ordersCollection.insertOne(orderInfo);
+
+    //     // update participantCount
+    //     await contestsCollection.updateOne(
+    //       {
+    //         _id: new ObjectId(session.metadata.contestId),
+    //       },
+    //       { $inc: { participantCount: 1 } }
+    //     );
+    //     return res.send({
+    //       transactionId: session.payment_intent,
+    //       orderId: result.insertedId,
+    //     });
+    //   }
+    //   res.send(
+    //     res.send({
+    //       transactionId: session.payment_intent,
+    //       orderId: order._id,
+    //     })
+    //   );
+    // });
+
     app.post("/payment-success", async (req, res) => {
-      const { sessionId } = req.body;
-      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      try {
+        const { sessionId } = req.body;
 
-      const contest = await contestsCollection.findOne({
-        _id: new ObjectId(session.metadata.contestId),
-      });
+        const session = await stripe.checkout.sessions.retrieve(sessionId);
 
-      const order = await ordersCollection.findOne({
-        transactionId: session.payment_intent,
-      });
+        const contest = await contestsCollection.findOne({
+          _id: new ObjectId(session.metadata.contestId),
+        });
 
-      console.log(session);
-      if (session.status === "complete" && contest && !order) {
-        const orderInfo = {
-          contestId: session.metadata.contestId,
+        const order = await ordersCollection.findOne({
           transactionId: session.payment_intent,
-          participant: session.metadata.participant,
-          status: "pending",
-          contestCreator: contest.contestCreator,
-          name: contest.name,
-          category: contest.category,
-          participantCount: 1,
-          contestFee: session.amount_total / 100,
-        };
-        console.log(orderInfo);
-        const result = await ordersCollection.insertOne(orderInfo);
+        });
+
+        console.log("SESSION:", session);
+
+        // Create new order if not exists
+        if (session.status === "complete" && contest && !order) {
+          const orderInfo = {
+            contestId: session.metadata.contestId,
+            transactionId: session.payment_intent,
+            participant: session.metadata.participant,
+            status: "pending",
+            contestCreator: contest.contestCreator,
+            name: contest.name,
+            category: contest.category,
+            participantsCount: 1,
+            contestFee: session.amount_total / 100,
+          };
+
+          console.log("ORDER INFO:", orderInfo);
+
+          const result = await ordersCollection.insertOne(orderInfo);
+
+          // update participant count
+          await contestsCollection.updateOne(
+            { _id: new ObjectId(session.metadata.contestId) },
+            { $inc: { participantsCount: 1 } }
+          );
+
+          return res.send({
+            transactionId: session.payment_intent,
+            orderId: result.insertedId,
+          });
+        }
+
+        // If order already exists, return it
+        return res.send({
+          transactionId: session.payment_intent,
+          orderId: order?._id,
+        });
+      } catch (error) {
+        console.error("PAYMENT SUCCESS ERROR:", error);
+        res.status(500).send({ error: "Payment processing failed." });
       }
-      res.send(contest);
     });
 
     // Send a ping to confirm a successful connection
