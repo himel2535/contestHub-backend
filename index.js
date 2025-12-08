@@ -223,7 +223,7 @@ async function run() {
       const email = req.params.email;
       const result = await contestsCollection
         .find({
-          participant: email,
+          participants: email,
         })
         .toArray();
       res.send(result);
@@ -272,21 +272,6 @@ async function run() {
         res
           .status(500)
           .send({ message: "Failed to delete contest", error: err });
-      }
-    });
-
-    // Get all submissions for a contest
-    app.get("/submissions/:contestId", async (req, res) => {
-      try {
-        const { contestId } = req.params;
-        const submissions = await submissionsCollection
-          .find({ contestId })
-          .toArray();
-        res.send(submissions);
-      } catch (err) {
-        res
-          .status(500)
-          .send({ message: "Failed to fetch submissions", error: err });
       }
     });
 
