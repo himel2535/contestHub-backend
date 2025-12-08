@@ -160,6 +160,7 @@ async function run() {
             name: contest.name,
             category: contest.category,
             contestFee: session.amount_total / 100,
+            image: contest.image,
           };
 
           const result = await ordersCollection.insertOne(orderInfo);
@@ -206,7 +207,7 @@ async function run() {
       res.send(result);
     });
 
-    // get all participation manage sata for contest creator
+    // get all participation manage data for contest creator
     app.get("/manage-contests/:email", async (req, res) => {
       const email = req.params.email;
       const result = await ordersCollection
@@ -215,6 +216,78 @@ async function run() {
         })
         .toArray();
       res.send(result);
+    });
+
+    // my inventory for contest creator--
+    app.get("/my-inventory/:email", async (req, res) => {
+      const email = req.params.email;
+      const result = await contestsCollection
+        .find({
+          participant: email,
+        })
+        .toArray();
+      res.send(result);
+    });
+
+    // --my contests page--
+    app.get("/my-created-contests/:email", async (req, res) => {
+      const email = req.params.email;
+      const result = await contestsCollection
+        .find({ "contestCreator.email": email })
+        .toArray();
+      res.send(result);
+    });
+
+    // Update contest status
+    // Edit contest
+    app.patch("/contests/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const updateData = req.body; // e.g., { name, category, contestFee, ... }
+        const result = await contestsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updateData }
+        );
+        if (result.matchedCount === 0)
+          return res.status(404).send({ message: "Contest not found" });
+        res.send({ message: "Contest updated successfully" });
+      } catch (err) {
+        res
+          .status(500)
+          .send({ message: "Failed to update contest", error: err });
+      }
+    });
+
+    // Delete contest by ID
+    app.delete("/contests/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const result = await contestsCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+        if (result.deletedCount === 0)
+          return res.status(404).send({ message: "Contest not found" });
+        res.send({ message: "Contest deleted successfully" });
+      } catch (err) {
+        res
+          .status(500)
+          .send({ message: "Failed to delete contest", error: err });
+      }
+    });
+
+    // Get all submissions for a contest
+    app.get("/submissions/:contestId", async (req, res) => {
+      try {
+        const { contestId } = req.params;
+        const submissions = await submissionsCollection
+          .find({ contestId })
+          .toArray();
+        res.send(submissions);
+      } catch (err) {
+        res
+          .status(500)
+          .send({ message: "Failed to fetch submissions", error: err });
+      }
     });
 
     // Test DB connection
