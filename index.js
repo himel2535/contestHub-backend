@@ -118,7 +118,7 @@ async function run() {
       });
 
       console.log(session);
-      if (session.status === "complete") {
+      if (session.status === "complete" && contest) {
         const orderInfo = {
           contestId: session.metadata.contestId,
           transactionId: session.payment_intent,
@@ -131,6 +131,7 @@ async function run() {
           contestFee: session.amount_total / 100,
         };
         console.log(orderInfo);
+        const result =await ordersCollection.insertOne(orderInfo)
       }
     });
 
