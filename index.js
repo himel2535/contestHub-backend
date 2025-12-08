@@ -117,8 +117,12 @@ async function run() {
         _id: new ObjectId(session.metadata.contestId),
       });
 
+      const order = await ordersCollection.findOne({
+        transactionId: session.payment_intent,
+      });
+
       console.log(session);
-      if (session.status === "complete" && contest) {
+      if (session.status === "complete" && contest && !order) {
         const orderInfo = {
           contestId: session.metadata.contestId,
           transactionId: session.payment_intent,
@@ -131,11 +135,10 @@ async function run() {
           contestFee: session.amount_total / 100,
         };
         console.log(orderInfo);
-        const result =await ordersCollection.insertOne(orderInfo)
+        const result = await ordersCollection.insertOne(orderInfo);
       }
+      res.send(contest);
     });
-
-
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
