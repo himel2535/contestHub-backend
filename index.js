@@ -82,7 +82,7 @@ async function run() {
       const paymentInfo = req.body;
 
       const session = await stripe.checkout.sessions.create({
-        // success_url: "https://example.com/success",
+ 
         line_items: [
           {
             price_data: {
@@ -103,7 +103,8 @@ async function run() {
           contestId: paymentInfo?.contestId,
           participant: paymentInfo?.participant?.email,
         },
-        success_url: `${process.env.CLIENT_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        success_url: `${process.env.CLIENT_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}&contestId=${paymentInfo.contestId}`,
+
         cancel_url: `${process.env.CLIENT_DOMAIN}/contest/${paymentInfo.contestId}`,
       });
       res.send({ url: session.url });
