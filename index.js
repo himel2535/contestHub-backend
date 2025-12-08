@@ -53,6 +53,7 @@ async function run() {
     const db = client.db("contests_db");
     const contestsCollection = db.collection("contests");
     const ordersCollection = db.collection("orders");
+    const submissionsCollection=db.collection("submissions")
 
     // --add contests by contest creator--
     app.post("/contests", async (req, res) => {
@@ -82,7 +83,6 @@ async function run() {
       const paymentInfo = req.body;
 
       const session = await stripe.checkout.sessions.create({
- 
         line_items: [
           {
             price_data: {
@@ -158,44 +158,102 @@ async function run() {
     //   );
     // });
 
+    // app.post("/payment-success", async (req, res) => {
+    //   try {
+    //     const { sessionId } = req.body;
+
+    //     const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+    //     const contest = await contestsCollection.findOne({
+    //       _id: new ObjectId(session.metadata.contestId),
+    //     });
+
+    //     const order = await ordersCollection.findOne({
+    //       transactionId: session.payment_intent,
+    //     });
+
+    //     console.log("SESSION:", session);
+
+    //     // Create new order if not exists
+    //     if (session.status === "complete" && contest && !order) {
+    //       const orderInfo = {
+    //         contestId: session.metadata.contestId,
+    //         transactionId: session.payment_intent,
+    //         participant: session.metadata.participant,
+    //         status: "pending",
+    //         contestCreator: contest.contestCreator,
+    //         name: contest.name,
+    //         category: contest.category,
+    //         participantsCount: 1,
+    //         contestFee: session.amount_total / 100,
+    //       };
+
+    //       console.log("ORDER INFO:", orderInfo);
+
+    //       const result = await ordersCollection.insertOne(orderInfo);
+
+    //       // update participant count
+    //       await contestsCollection.updateOne(
+    //         { _id: new ObjectId(session.metadata.contestId) },
+    //         { $inc: { participantsCount: 1 } }
+    //       );
+
+    //       return res.send({
+    //         transactionId: session.payment_intent,
+    //         orderId: result.insertedId,
+    //       });
+    //     }
+
+    //     // If order already exists, return it
+    //     return res.send({
+    //       transactionId: session.payment_intent,
+    //       orderId: order?._id,
+    //     });
+    //   } catch (error) {
+    //     console.error("PAYMENT SUCCESS ERROR:", error);
+    //     res.status(500).send({ error: "Payment processing failed." });
+    //   }
+    // });
+
     app.post("/payment-success", async (req, res) => {
       try {
         const { sessionId } = req.body;
 
         const session = await stripe.checkout.sessions.retrieve(sessionId);
 
+        const contestId = session.metadata.contestId;
+        const participantEmail = session.metadata.participant;
+
         const contest = await contestsCollection.findOne({
-          _id: new ObjectId(session.metadata.contestId),
+          _id: new ObjectId(contestId),
         });
 
         const order = await ordersCollection.findOne({
           transactionId: session.payment_intent,
         });
 
-        console.log("SESSION:", session);
-
-        // Create new order if not exists
+        // Create new order only if not exists
         if (session.status === "complete" && contest && !order) {
           const orderInfo = {
-            contestId: session.metadata.contestId,
+            contestId: contestId,
             transactionId: session.payment_intent,
-            participant: session.metadata.participant,
+            participant: participantEmail,
             status: "pending",
             contestCreator: contest.contestCreator,
             name: contest.name,
             category: contest.category,
-            participantsCount: 1,
             contestFee: session.amount_total / 100,
           };
 
-          console.log("ORDER INFO:", orderInfo);
-
           const result = await ordersCollection.insertOne(orderInfo);
 
-          // update participant count
+          // ⭐ Add participant + Increase count
           await contestsCollection.updateOne(
-            { _id: new ObjectId(session.metadata.contestId) },
-            { $inc: { participantsCount: 1 } }
+            { _id: new ObjectId(contestId) },
+            {
+              $addToSet: { participants: participantEmail },
+              $inc: { participantsCount: 1 },
+            }
           );
 
           return res.send({
@@ -204,7 +262,6 @@ async function run() {
           });
         }
 
-        // If order already exists, return it
         return res.send({
           transactionId: session.payment_intent,
           orderId: order?._id,
@@ -213,6 +270,22 @@ async function run() {
         console.error("PAYMENT SUCCESS ERROR:", error);
         res.status(500).send({ error: "Payment processing failed." });
       }
+    });
+
+    // submit task add--
+    app.post("/submit-task", async (req, res) => {
+      const { contestId, task, email } = req.body;
+
+      const submission = {
+        contestId,
+        email,
+        task,
+        submittedAt: new Date(),
+      };
+
+      const result = await submissionsCollection.insertOne(submission);
+
+      res.send(result);
     });
 
     // Send a ping to confirm a successful connection
