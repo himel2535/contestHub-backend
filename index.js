@@ -52,6 +52,7 @@ async function run() {
   try {
     const db = client.db("contests_db");
     const contestsCollection = db.collection("contests");
+    const ordersCollection = db.collection("orders");
 
     // --add contests by contest creator--
     app.post("/contests", async (req, res) => {
@@ -101,17 +102,39 @@ async function run() {
         metadata: {
           contestId: paymentInfo?.contestId,
           participant: paymentInfo?.participant?.email,
-          // contestCreator: paymentInfo?.contestCreator,
-          // contestCreator: {
-          //   name: paymentInfo?.contestCreator?.name,
-          //   email: paymentInfo?.contestCreator?.email,
-          // },
         },
-        success_url: `${process.env.CLIENT_DOMAIN}/payment-success`,
+        success_url: `${process.env.CLIENT_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${process.env.CLIENT_DOMAIN}/contest/${paymentInfo.contestId}`,
       });
       res.send({ url: session.url });
     });
+
+    app.post("/payment-success", async (req, res) => {
+      const { sessionId } = req.body;
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+      const contest = await contestsCollection.findOne({
+        _id: new ObjectId(session.metadata.contestId),
+      });
+
+      console.log(session);
+      if (session.status === "complete") {
+        const orderInfo = {
+          contestId: session.metadata.contestId,
+          transactionId: session.payment_intent,
+          participant: session.metadata.participant,
+          status: "pending",
+          contestCreator: contest.contestCreator,
+          name: contest.name,
+          category: contest.category,
+          participantCount: 1,
+          contestFee: session.amount_total / 100,
+        };
+        console.log(orderInfo);
+      }
+    });
+
+
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
