@@ -65,17 +65,34 @@ async function run() {
     });
 
     // Get single contest
+    // index.js
+
+    // Get single contest
     app.get("/contest/:id", async (req, res) => {
       try {
         const id = req.params.id;
+
+
         const result = await contestsCollection.findOne({
           _id: new ObjectId(id),
         });
+
         if (!result)
           return res.status(404).send({ error: "Contest not found" });
-        if (result.deadline) result.deadline = result.deadline.toISOString();
+
+        if (result.deadline && result.deadline instanceof Date) {
+          result.deadline = result.deadline.toISOString();
+        }
+
         res.send(result);
       } catch (err) {
+
+        console.error(
+          "Error fetching contest details for ID:",
+          req.params.id,
+          "Error:",
+          err
+        );
         res.status(500).send({ error: "Failed to fetch contest" });
       }
     });
@@ -239,27 +256,27 @@ async function run() {
     });
 
     // Update contest status
-    // Edit contest
-    app.patch("/contests/:id", async (req, res) => {
-      try {
-        const { id } = req.params;
-        const updateData = req.body; // e.g., { name, category, contestFee, ... }
-        const result = await contestsCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $set: updateData }
-        );
-        if (result.matchedCount === 0)
-          return res.status(404).send({ message: "Contest not found" });
-        res.send({ message: "Contest updated successfully" });
-      } catch (err) {
-        res
-          .status(500)
-          .send({ message: "Failed to update contest", error: err });
-      }
-    });
+    // Edit contest status
+    // app.patch("/contests/:id", async (req, res) => {
+    //   try {
+    //     const { id } = req.params;
+    //     const updateData = req.body; // e.g., { name, category, contestFee, ... }
+    //     const result = await contestsCollection.updateOne(
+    //       { _id: new ObjectId(id) },
+    //       { $set: updateData }
+    //     );
+    //     if (result.matchedCount === 0)
+    //       return res.status(404).send({ message: "Contest not found" });
+    //     res.send({ message: "Contest updated successfully" });
+    //   } catch (err) {
+    //     res
+    //       .status(500)
+    //       .send({ message: "Failed to update contest", error: err });
+    //   }
+    // });
 
     // Delete contest by ID
-    app.delete("/contests/:id", async (req, res) => {
+    app.delete("/contests-delete/:id", async (req, res) => {
       try {
         const { id } = req.params;
         const result = await contestsCollection.deleteOne({
@@ -272,6 +289,25 @@ async function run() {
         res
           .status(500)
           .send({ message: "Failed to delete contest", error: err });
+      }
+    });
+
+    // --update contests--
+    app.put("/contests-update/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const updatedData = req.body;
+
+        const result = await contestsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updatedData }
+        );
+
+        res.send({ message: "Contest updated successfully!", result });
+      } catch (err) {
+        res
+          .status(500)
+          .send({ message: "Failed to update contest", error: err });
       }
     });
 
