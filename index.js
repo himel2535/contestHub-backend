@@ -65,13 +65,9 @@ async function run() {
     });
 
     // Get single contest
-    // index.js
-
-    // Get single contest
     app.get("/contest/:id", async (req, res) => {
       try {
         const id = req.params.id;
-
 
         const result = await contestsCollection.findOne({
           _id: new ObjectId(id),
@@ -80,13 +76,13 @@ async function run() {
         if (!result)
           return res.status(404).send({ error: "Contest not found" });
 
+        // Fix: Date object check to prevent .toISOString() on strings
         if (result.deadline && result.deadline instanceof Date) {
           result.deadline = result.deadline.toISOString();
         }
 
         res.send(result);
       } catch (err) {
-
         console.error(
           "Error fetching contest details for ID:",
           req.params.id,
@@ -105,6 +101,7 @@ async function run() {
           image: data.image,
           name: data.name,
           description: data.description,
+          status: data.status,
           participantsCount: Number(data.participantsCount) || 0,
           prizeMoney: Number(data.prizeMoney) || 0,
           contestFee: Number(data.contestFee) || 0,
@@ -207,10 +204,73 @@ async function run() {
 
     // Submit task
     app.post("/submit-task", async (req, res) => {
-      const { contestId, task, email } = req.body;
-      const submission = { contestId, email, task, submittedAt: new Date() };
+      const { contestId, task, email, name } = req.body;
+      const submission = {
+        contestId,
+        email,
+        name,
+        task,
+        submittedAt: new Date(),
+      };
       const result = await submissionsCollection.insertOne(submission);
       res.send(result);
+    });
+
+    // submission get (all) - kept for reference
+    app.get("/submit-task", async (req, res) => {
+      const result = await submissionsCollection.find().toArray();
+      res.send(result);
+    });
+    
+    // 💡 NEW ROUTE: Get all submissions for a specific contest ID
+    app.get("/contest-submissions/:contestId", async (req, res) => {
+      try {
+        const contestId = req.params.contestId;
+        
+        // submissionsCollection এ contestId string হিসেবে সেভ করা আছে।
+        const submissions = await submissionsCollection.find({
+            contestId: contestId 
+        }).toArray();
+        
+        res.send(submissions);
+
+      } catch (err) {
+        console.error("Error fetching contest submissions by ID:", err);
+        res.status(500).send({ error: "Failed to fetch contest submissions" });
+      }
+    });
+
+    // Get all submissions for the contests created by the contest creator (via email) - kept for reference
+    app.get("/creator-submissions/:email", async (req, res) => {
+      try {
+        const creatorEmail = req.params.email;
+
+        const creatorContests = await contestsCollection
+          .find({
+            "contestCreator.email": creatorEmail,
+          })
+          .project({ _id: 1 })
+          .toArray();
+
+        const contestIds = creatorContests.map((contest) =>
+          contest._id.toString()
+        );
+
+        if (contestIds.length === 0) {
+          return res.send([]);
+        }
+
+        const submissions = await submissionsCollection
+          .find({
+            contestId: { $in: contestIds },
+          })
+          .toArray();
+
+        res.send(submissions);
+      } catch (err) {
+        console.error("Error fetching creator submissions:", err);
+        res.status(500).send({ error: "Failed to fetch creator submissions" });
+      }
     });
 
     // get all participation for participant
@@ -235,45 +295,21 @@ async function run() {
       res.send(result);
     });
 
-    // my inventory for contest creator--
+    // 🚨 FIX: my-inventory for contest creator (used in front-end)
     app.get("/my-inventory/:email", async (req, res) => {
-      const email = req.params.email;
-      const result = await contestsCollection
-        .find({
-          participants: email,
-        })
-        .toArray();
-      res.send(result);
+      try {
+        const email = req.params.email;
+        const result = await contestsCollection
+          .find({
+            "contestCreator.email": email, // Changed to fetch created contests
+          })
+          .toArray();
+        res.send(result);
+      } catch (err) {
+        console.error("Error fetching creator inventory:", err);
+        res.status(500).send({ error: "Failed to fetch inventory" });
+      }
     });
-
-    // --my contests page--
-    app.get("/my-created-contests/:email", async (req, res) => {
-      const email = req.params.email;
-      const result = await contestsCollection
-        .find({ "contestCreator.email": email })
-        .toArray();
-      res.send(result);
-    });
-
-    // Update contest status
-    // Edit contest status
-    // app.patch("/contests/:id", async (req, res) => {
-    //   try {
-    //     const { id } = req.params;
-    //     const updateData = req.body; // e.g., { name, category, contestFee, ... }
-    //     const result = await contestsCollection.updateOne(
-    //       { _id: new ObjectId(id) },
-    //       { $set: updateData }
-    //     );
-    //     if (result.matchedCount === 0)
-    //       return res.status(404).send({ message: "Contest not found" });
-    //     res.send({ message: "Contest updated successfully" });
-    //   } catch (err) {
-    //     res
-    //       .status(500)
-    //       .send({ message: "Failed to update contest", error: err });
-    //   }
-    // });
 
     // Delete contest by ID
     app.delete("/contests-delete/:id", async (req, res) => {
