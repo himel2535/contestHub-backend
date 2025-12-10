@@ -58,6 +58,7 @@ async function run() {
     const contestsCollection = db.collection("contests");
     const ordersCollection = db.collection("orders");
     const submissionsCollection = db.collection("submissions");
+    const winnersCollection = db.collection("winners");
 
     //--- API Endpoints ---//
 
@@ -123,7 +124,7 @@ async function run() {
           contestCreator: data.contestCreator || {},
           participants: data.participants || [],
           deadline: data.deadline ? new Date(data.deadline) : null,
-          taskInstruction: data.taskInstruction || "", // 💡 Task Instruction added
+          taskInstruction: data.taskInstruction || "",
           createdAt: new Date(),
         };
         const result = await contestsCollection.insertOne(doc);
@@ -191,10 +192,11 @@ async function run() {
     });
 
     // Declare Contest Winner
+    // Declare Contest Winner
     app.patch("/contests/winner/:contestId", async (req, res) => {
       try {
         const { contestId } = req.params;
-        const winnerData = req.body;
+        const winnerData = req.body; // winnerData-তে winnerName, winnerEmail, submissionId, winnerPhotoUrl থাকবে
 
         if (!ObjectId.isValid(contestId)) {
           return res.status(400).send({ message: "Invalid Contest ID" });
@@ -204,6 +206,11 @@ async function run() {
           _id: new ObjectId(contestId),
         });
 
+        if (!contest) {
+          return res.status(404).send({ message: "Contest not found." });
+        }
+
+        // 💡 যদিAlready Winner Declared করা থাকে
         if (contest.winner) {
           return res.status(400).send({
             message: "Winner has already been declared for this contest.",
@@ -215,8 +222,8 @@ async function run() {
             winner: {
               name: winnerData.winnerName,
               email: winnerData.winnerEmail,
+              photo: winnerData.winnerPhoto, // 💡 winnerPhoto হিসেবে সেভ করা হলো
               submissionId: winnerData.submissionId,
-              photoUrl: winnerData.winnerPhotoUrl, // 💡 Assuming this is passed from front-end
               declaredAt: new Date(),
             },
             status: "Completed",
@@ -232,11 +239,33 @@ async function run() {
           return res.status(404).send({ message: "Contest not found." });
         }
 
+        // 💡 উইনার ঘোষণার পর সাবমিশন স্ট্যাটাস আপডেট করা যেতে পারে (ঐচ্ছিক)
+        await submissionsCollection.updateOne(
+          { _id: new ObjectId(winnerData.submissionId) },
+          { $set: { status: "Winner" } }
+        );
+
         res.send({ message: "Winner declared successfully!", result });
       } catch (err) {
         console.error("Error declaring winner:", err);
         res.status(500).send({ error: "Failed to declare winner" });
       }
+    });
+
+    // Submit task (💡 এখানে `photoUrl` সেভ করা হচ্ছে, যা submissionsCollection এ থাকবে)
+    app.post("/submit-task", async (req, res) => {
+      const { contestId, task, email, name, photoUrl } = req.body;
+      const submission = {
+        contestId,
+        email,
+        name,
+        photo: photoUrl, // 💡 `photo` ফিল্ডে সেভ করা হলো
+        task,
+        submittedAt: new Date(),
+        status: "Pending",
+      };
+      const result = await submissionsCollection.insertOne(submission);
+      res.send(result);
     });
 
     // Stripe checkout session
@@ -346,20 +375,20 @@ async function run() {
     });
 
     // Submit task
-    app.post("/submit-task", async (req, res) => {
-      const { contestId, task, email, name, photoUrl } = req.body; // 💡 Assuming photoUrl is also sent
-      const submission = {
-        contestId,
-        email,
-        name,
-        photoUrl,
-        task,
-        submittedAt: new Date(),
-        status: "Pending",
-      };
-      const result = await submissionsCollection.insertOne(submission);
-      res.send(result);
-    });
+    // app.post("/submit-task", async (req, res) => {
+    //   const { contestId, task, email, name, photoUrl } = req.body; // 💡 Assuming photoUrl is also sent
+    //   const submission = {
+    //     contestId,
+    //     email,
+    //     name,
+    //     photoUrl,
+    //     task,
+    //     submittedAt: new Date(),
+    //     status: "Pending",
+    //   };
+    //   const result = await submissionsCollection.insertOne(submission);
+    //   res.send(result);
+    // });
 
     // Get all submissions for a specific contest ID
     app.get("/contest-submissions/:contestId", async (req, res) => {
@@ -438,6 +467,17 @@ async function run() {
         console.error("Error fetching creator submissions:", err);
         res.status(500).send({ error: "Failed to fetch creator submissions" });
       }
+    });
+
+    // --winner create--
+    app.post("/winners", async (req, res) => {
+      const query = req.body;
+      const winner = {
+        name: query.name,
+        email: query.email,
+        image: query.image,
+        task: query.task,
+      };
     });
 
     // Test DB connection
