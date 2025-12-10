@@ -456,42 +456,38 @@ async function run() {
     // --winners in leaderboard--
     app.get("/winners-leaderboard", async (req, res) => {
       try {
-      
         const recentWinners = await contestsCollection
-          .find({ winner: { $exists: true, $ne: null } }) 
-          .sort({ "winner.declaredAt": -1 }) 
-          .limit(6) 
+          .find({ winner: { $exists: true, $ne: null } })
+          .sort({ "winner.declaredAt": -1 })
+          .limit(6)
           .project({
             name: 1, // Contest Name
             prizeMoney: 1,
-            winner: 1, 
+            winner: 1,
             category: 1,
           })
           .toArray();
 
- 
         const stats = await contestsCollection
           .aggregate([
             {
-              $match: { winner: { $exists: true, $ne: null } }, 
+              $match: { winner: { $exists: true, $ne: null } },
             },
             {
               $group: {
                 _id: null,
-                totalWinners: { $sum: 1 }, 
-                totalPrizeMoney: { $sum: "$prizeMoney" }, 
+                totalWinners: { $sum: 1 },
+                totalPrizeMoney: { $sum: "$prizeMoney" },
               },
             },
           ])
           .toArray();
-
 
         const formattedStats = stats[0] || {
           totalWinners: 0,
           totalPrizeMoney: 0,
         };
 
-       
         const winnersData = recentWinners.map((contest) => ({
           contestId: contest._id,
           contestName: contest.name,
@@ -512,6 +508,54 @@ async function run() {
         res.status(500).send({ error: "Failed to fetch leaderboard data" });
       }
     });
+
+
+
+    // 💡 New API: Get Top Winners ranked by the number of contests won
+    app.get("/top-winners-ranking", async (req, res) => {
+      try {
+        const ranking = await contestsCollection
+          .aggregate([
+            {
+              // 1. শুধুমাত্র বিজয়ী ঘোষিত contest-গুলো ফিল্টার করা
+              $match: {
+                winner: { $exists: true, $ne: null },
+              },
+            },
+            {
+              // 2. winner.email অনুযায়ী ডেটা গ্রুপ করা এবং জয় গণনা করা
+              $group: {
+                _id: "$winner.email", // বিজয়ীর ইমেইল দ্বারা গ্রুপ করা
+                totalWins: { $sum: 1 }, // ওই ইমেইলের জন্য মোট জয়ের সংখ্যা
+                winnerName: { $first: "$winner.name" }, // বিজয়ীর নাম (প্রথম পাওয়া নামটি)
+                winnerPhoto: { $first: "$winner.photo" }, // বিজয়ীর ছবি (প্রথম পাওয়া ছবিটি)
+              },
+            },
+            {
+              // 3. totalWins অনুযায়ী ডেটা ডিসেন্ডিং অর্ডারে সাজানো (Ranked)
+              $sort: { totalWins: -1 },
+            },
+            {
+              // 4. চূড়ান্ত আউটপুট ফরম্যাট করা
+              $project: {
+                _id: 0, // _id ফিল্ডটি বাদ দেওয়া
+                email: "$_id",
+                name: "$winnerName",
+                photo: "$winnerPhoto",
+                wins: "$totalWins",
+              },
+            },
+          ])
+          .toArray();
+
+        res.send(ranking);
+      } catch (err) {
+        console.error("Error fetching top winners ranking:", err);
+        res.status(500).send({ error: "Failed to fetch top winners ranking" });
+      }
+    });
+
+  
 
     // Test DB connection
     await client.db("admin").command({ ping: 1 });
