@@ -222,7 +222,7 @@ async function run() {
             winner: {
               name: winnerData.winnerName,
               email: winnerData.winnerEmail,
-              photo: winnerData.winnerPhoto, // 💡 winnerPhoto হিসেবে সেভ করা হলো
+              photo: winnerData.winnerPhoto,
               submissionId: winnerData.submissionId,
               declaredAt: new Date(),
             },
