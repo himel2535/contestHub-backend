@@ -252,14 +252,14 @@ async function run() {
       }
     });
 
-    // Submit task (💡 এখানে `photoUrl` সেভ করা হচ্ছে, যা submissionsCollection এ থাকবে)
+    // Submit task
     app.post("/submit-task", async (req, res) => {
       const { contestId, task, email, name, photoUrl } = req.body;
       const submission = {
         contestId,
         email,
         name,
-        photo: photoUrl, // 💡 `photo` ফিল্ডে সেভ করা হলো
+        photo: photoUrl,
         task,
         submittedAt: new Date(),
         status: "Pending",
@@ -374,22 +374,6 @@ async function run() {
       res.send(result);
     });
 
-    // Submit task
-    // app.post("/submit-task", async (req, res) => {
-    //   const { contestId, task, email, name, photoUrl } = req.body; // 💡 Assuming photoUrl is also sent
-    //   const submission = {
-    //     contestId,
-    //     email,
-    //     name,
-    //     photoUrl,
-    //     task,
-    //     submittedAt: new Date(),
-    //     status: "Pending",
-    //   };
-    //   const result = await submissionsCollection.insertOne(submission);
-    //   res.send(result);
-    // });
-
     // Get all submissions for a specific contest ID
     app.get("/contest-submissions/:contestId", async (req, res) => {
       try {
@@ -469,15 +453,64 @@ async function run() {
       }
     });
 
-    // --winner create--
-    app.post("/winners", async (req, res) => {
-      const query = req.body;
-      const winner = {
-        name: query.name,
-        email: query.email,
-        image: query.image,
-        task: query.task,
-      };
+    // --winners in leaderboard--
+    app.get("/winners-leaderboard", async (req, res) => {
+      try {
+      
+        const recentWinners = await contestsCollection
+          .find({ winner: { $exists: true, $ne: null } }) 
+          .sort({ "winner.declaredAt": -1 }) 
+          .limit(6) 
+          .project({
+            name: 1, // Contest Name
+            prizeMoney: 1,
+            winner: 1, 
+            category: 1,
+          })
+          .toArray();
+
+ 
+        const stats = await contestsCollection
+          .aggregate([
+            {
+              $match: { winner: { $exists: true, $ne: null } }, 
+            },
+            {
+              $group: {
+                _id: null,
+                totalWinners: { $sum: 1 }, 
+                totalPrizeMoney: { $sum: "$prizeMoney" }, 
+              },
+            },
+          ])
+          .toArray();
+
+
+        const formattedStats = stats[0] || {
+          totalWinners: 0,
+          totalPrizeMoney: 0,
+        };
+
+       
+        const winnersData = recentWinners.map((contest) => ({
+          contestId: contest._id,
+          contestName: contest.name,
+          prize: contest.prizeMoney,
+          winnerName: contest.winner.name,
+          winnerPhoto: contest.winner.photo,
+          declaredAt: contest.winner.declaredAt,
+          category: contest.category,
+        }));
+
+        res.send({
+          totalWinners: formattedStats.totalWinners,
+          totalPrizeMoney: formattedStats.totalPrizeMoney,
+          recentWinners: winnersData,
+        });
+      } catch (err) {
+        console.error("Error fetching leaderboard data:", err);
+        res.status(500).send({ error: "Failed to fetch leaderboard data" });
+      }
     });
 
     // Test DB connection
