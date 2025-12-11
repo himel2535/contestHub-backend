@@ -58,7 +58,7 @@ async function run() {
     const contestsCollection = db.collection("contests");
     const ordersCollection = db.collection("orders");
     const submissionsCollection = db.collection("submissions");
-    const winnersCollection = db.collection("winners");
+    const usersCollection = db.collection("users");
 
     //--- API Endpoints ---//
 
@@ -191,7 +191,6 @@ async function run() {
       }
     });
 
-    // Declare Contest Winner
     // Declare Contest Winner
     app.patch("/contests/winner/:contestId", async (req, res) => {
       try {
@@ -509,36 +508,31 @@ async function run() {
       }
     });
 
-
-
     // 💡 New API: Get Top Winners ranked by the number of contests won
     app.get("/top-winners-ranking", async (req, res) => {
       try {
         const ranking = await contestsCollection
           .aggregate([
             {
-              // 1. শুধুমাত্র বিজয়ী ঘোষিত contest-গুলো ফিল্টার করা
               $match: {
                 winner: { $exists: true, $ne: null },
               },
             },
             {
-              // 2. winner.email অনুযায়ী ডেটা গ্রুপ করা এবং জয় গণনা করা
+              // 2. winner.email
               $group: {
-                _id: "$winner.email", // বিজয়ীর ইমেইল দ্বারা গ্রুপ করা
-                totalWins: { $sum: 1 }, // ওই ইমেইলের জন্য মোট জয়ের সংখ্যা
-                winnerName: { $first: "$winner.name" }, // বিজয়ীর নাম (প্রথম পাওয়া নামটি)
-                winnerPhoto: { $first: "$winner.photo" }, // বিজয়ীর ছবি (প্রথম পাওয়া ছবিটি)
+                _id: "$winner.email",
+                totalWins: { $sum: 1 },
+                winnerName: { $first: "$winner.name" },
+                winnerPhoto: { $first: "$winner.photo" },
               },
             },
             {
-              // 3. totalWins অনুযায়ী ডেটা ডিসেন্ডিং অর্ডারে সাজানো (Ranked)
               $sort: { totalWins: -1 },
             },
             {
-              // 4. চূড়ান্ত আউটপুট ফরম্যাট করা
               $project: {
-                _id: 0, // _id ফিল্ডটি বাদ দেওয়া
+                _id: 0,
                 email: "$_id",
                 name: "$winnerName",
                 photo: "$winnerPhoto",
@@ -555,7 +549,12 @@ async function run() {
       }
     });
 
-  
+    // --save or updata user--
+    app.post("/user", async (req, res) => {
+      const userData = req.body;
+      const result=await usersCollection.insertOne(userData)
+      res.send(result);
+    });
 
     // Test DB connection
     await client.db("admin").command({ ping: 1 });
