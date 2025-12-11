@@ -352,11 +352,10 @@ async function run() {
     });
 
     // get all participation for participant
-    app.get("/my-contests/:email", async (req, res) => {
-      const email = req.params.email;
+    app.get("/my-contests", verifyJWT, async (req, res) => {
       const result = await ordersCollection
         .find({
-          participant: email,
+          participant: req.tokenEmail,
         })
         .toArray();
       res.send(result);
@@ -553,27 +552,32 @@ async function run() {
     app.post("/user", async (req, res) => {
       const userData = req.body;
 
-      userData.created_at=new Date().toISOString()
-      userData.lastLoggedIn=new Date().toISOString()
-      userData.role="participant"
-      const query={
-        email:userData.email
+      userData.created_at = new Date().toISOString();
+      userData.lastLoggedIn = new Date().toISOString();
+      userData.role = "participant";
+      const query = {
+        email: userData.email,
+      };
+      const alreadyExists = await usersCollection.findOne(query);
+      console.log("already exist", !!alreadyExists);
+      if (alreadyExists) {
+        console.log("updating user info....");
+        const result = await usersCollection.updateOne(query, {
+          $set: { lastLoggedIn: new Date().toISOString() },
+        });
+        return res.send(result);
       }
-      const alreadyExists=await usersCollection.findOne(query)
-      console.log("already exist",!!alreadyExists)
-      if(alreadyExists){
 
-        console.log("updating user info....")
-        const result=await usersCollection.updateOne(query,{
-          $set:{lastLoggedIn:new Date().toISOString()}
-        })
-       return res.send(result);
-      }
+      console.log("saving new user info....");
 
-       console.log("saving new user info....")
-
-      const result=await usersCollection.insertOne(userData)
+      const result = await usersCollection.insertOne(userData);
       res.send(result);
+    });
+
+    // get an users role--
+    app.get("/user/role", verifyJWT, async (req, res) => {
+      const result = await usersCollection.findOne({ email: req.tokenEmail });
+      res.send({ role: result?.role });
     });
 
     // Test DB connection
