@@ -552,6 +552,25 @@ async function run() {
     // --save or updata user--
     app.post("/user", async (req, res) => {
       const userData = req.body;
+
+      userData.created_at=new Date().toISOString()
+      userData.lastLoggedIn=new Date().toISOString()
+      const query={
+        email:userData.email
+      }
+      const alreadyExists=await usersCollection.findOne(query)
+      console.log("already exist",!!alreadyExists)
+      if(alreadyExists){
+        
+        console.log("updating user info....")
+        const result=await usersCollection.updateOne(query,{
+          $set:{lastLoggedIn:new Date().toISOString()}
+        })
+       return res.send(result);
+      }
+
+       console.log("saving new user info....")
+
       const result=await usersCollection.insertOne(userData)
       res.send(result);
     });
