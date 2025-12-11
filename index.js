@@ -555,13 +555,14 @@ async function run() {
 
       userData.created_at=new Date().toISOString()
       userData.lastLoggedIn=new Date().toISOString()
+      userData.role="participant"
       const query={
         email:userData.email
       }
       const alreadyExists=await usersCollection.findOne(query)
       console.log("already exist",!!alreadyExists)
       if(alreadyExists){
-        
+
         console.log("updating user info....")
         const result=await usersCollection.updateOne(query,{
           $set:{lastLoggedIn:new Date().toISOString()}
