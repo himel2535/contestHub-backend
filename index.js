@@ -59,6 +59,7 @@ async function run() {
     const ordersCollection = db.collection("orders");
     const submissionsCollection = db.collection("submissions");
     const usersCollection = db.collection("users");
+    const creatorRequestsCollection=db.collection("creatorRequests")
 
     //--- API Endpoints ---//
 
@@ -579,6 +580,17 @@ async function run() {
       const result = await usersCollection.findOne({ email: req.tokenEmail });
       res.send({ role: result?.role });
     });
+
+    // save become creator--
+    app.post("/become-creator",verifyJWT,async(req,res)=>{
+      const email=req.tokenEmail
+      const alreadyExists=await creatorRequestsCollection.findOne({email})
+      if(alreadyExists){
+        return res.status(409).send({message:"Already requested to being Contest Creator"})
+      }
+      const result=await creatorRequestsCollection.insertOne({email})
+      res.send(result)
+    })
 
     // Test DB connection
     await client.db("admin").command({ ping: 1 });
