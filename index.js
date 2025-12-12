@@ -61,6 +61,31 @@ async function run() {
     const usersCollection = db.collection("users");
     const creatorRequestsCollection = db.collection("creatorRequests");
 
+    // ---role middlewares---
+    const verifyADMIN = async (req, res, next) => {
+      const email = req.tokenEmail;
+      const user = await usersCollection.findOne({ email });
+
+      if (user?.role !== "admin") {
+        return res
+          .status(403)
+          .send({ message: "Admin only Actions", role: user?.role });
+      }
+      next();
+    };
+
+    const verifyCREATOR = async (req, res, next) => {
+      const email = req.tokenEmail;
+      const user = await usersCollection.findOne({ email });
+
+      if (user?.role !== "contestCreator") {
+        return res
+          .status(403)
+          .send({ message: "Contest Creator only Actions", role: user?.role });
+      }
+      next();
+    };
+
     //--- API Endpoints ---//
 
     // Get all contests
@@ -110,7 +135,7 @@ async function run() {
     });
 
     // Create contest
-    app.post("/contests", async (req, res) => {
+    app.post("/contests", verifyJWT, verifyCREATOR, async (req, res) => {
       try {
         const data = req.body;
         const doc = {
@@ -136,7 +161,7 @@ async function run() {
     });
 
     //  my-inventory for contest creator (used in front-end)
-    app.get("/my-inventory/:email", async (req, res) => {
+    app.get("/my-inventory/:email",verifyJWT,verifyCREATOR, async (req, res) => {
       try {
         const email = req.params.email;
         const result = await contestsCollection
@@ -363,7 +388,7 @@ async function run() {
     });
 
     // get all participation manage data for contest creator
-    app.get("/manage-contests/:email", async (req, res) => {
+    app.get("/manage-contests/:email",verifyJWT,verifyCREATOR, async (req, res) => {
       const email = req.params.email;
       const result = await ordersCollection
         .find({
@@ -420,7 +445,7 @@ async function run() {
     );
 
     // Get all submissions for the contests created by the contest creator (via email) - kept for reference
-    app.get("/creator-submissions/:email", async (req, res) => {
+    app.get("/creator-submissions/:email",verifyJWT,verifyCREATOR, async (req, res) => {
       try {
         const creatorEmail = req.params.email;
 
