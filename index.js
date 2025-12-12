@@ -95,7 +95,6 @@ async function run() {
       res.send(result);
     });
 
-
     // --- ADMIN MANAGEMENT ROUTES ---
 
     // 1. Get all contests for management (Admin only)
@@ -373,7 +372,6 @@ async function run() {
             return res.status(404).send({ message: "Contest not found." });
           }
 
-     
           await submissionsCollection.updateOne(
             { _id: new ObjectId(winnerData.submissionId) },
             { $set: { status: "Winner" } }
@@ -386,7 +384,6 @@ async function run() {
         }
       }
     );
-
 
     // Contest Creator Delete Contest (Only if contest is Pending)
     app.delete(
@@ -412,21 +409,16 @@ async function run() {
           }
 
           if (contest.status !== "Pending") {
-            return res
-              .status(403)
-              .send({
-                message:
-                  "Contests can only be deleted if the status is Pending.",
-              });
+            return res.status(403).send({
+              message: "Contests can only be deleted if the status is Pending.",
+            });
           }
 
           // 💡 2. Ensure the user trying to delete is the actual creator
           if (contest.contestCreator.email !== creatorEmail) {
-            return res
-              .status(403)
-              .send({
-                message: "Forbidden: You are not the creator of this contest.",
-              });
+            return res.status(403).send({
+              message: "Forbidden: You are not the creator of this contest.",
+            });
           }
 
           // 💡 3. Proceed with deletion
@@ -442,12 +434,10 @@ async function run() {
           res.send({ message: "Contest deleted successfully by creator" });
         } catch (err) {
           console.error("Error deleting contest by creator:", err);
-          res
-            .status(500)
-            .send({
-              message: "Failed to delete contest by creator",
-              error: err,
-            });
+          res.status(500).send({
+            message: "Failed to delete contest by creator",
+            error: err,
+          });
         }
       }
     );
@@ -519,7 +509,7 @@ async function run() {
             contestId,
             transactionId: session.payment_intent,
             participant: participantEmail,
-            status: "pending",
+            status: "Paid",
             contestCreator: contest.contestCreator,
             name: contest.name,
             category: contest.category,
@@ -554,12 +544,65 @@ async function run() {
 
     // get all participation for participant
     app.get("/my-contests", verifyJWT, async (req, res) => {
-      const result = await ordersCollection
-        .find({
-          participant: req.tokenEmail,
-        })
-        .toArray();
-      res.send(result);
+      try {
+        const participantEmail = req.tokenEmail;
+
+        const result = await ordersCollection
+          .aggregate([
+            {
+              $match: {
+                participant: participantEmail,
+              },
+            },
+            {
+              $addFields: {
+                contestObjectId: { $toObjectId: "$contestId" },
+              },
+            },
+            {
+              $lookup: {
+                from: "contests",
+                localField: "contestObjectId",
+                foreignField: "_id",
+                as: "contestDetails",
+              },
+            },
+            {
+              $unwind: {
+                path: "$contestDetails",
+                preserveNullAndEmptyArrays: true,
+              },
+            },
+            {
+              $sort: {
+                "contestDetails.deadline": 1,
+              },
+            },
+            {
+              $project: {
+                _id: 1,
+                transactionId: 1,
+                status: 1,
+                name: 1,
+                category: 1,
+                contestFee: 1,
+                image: 1,
+                deadline: "$contestDetails.deadline",
+              },
+            },
+          ])
+          .toArray();
+
+        res.send(result);
+      } catch (err) {
+        console.error(
+          "Error fetching participant contests with deadline:",
+          err
+        );
+        res
+          .status(500)
+          .send({ error: "Failed to fetch participated contests" });
+      }
     });
 
     // get all participation manage data for contest creator
