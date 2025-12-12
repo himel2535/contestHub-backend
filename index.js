@@ -87,12 +87,19 @@ async function run() {
 
     //--- API Endpoints ---//
 
-    // Get all contests (USER view - only confirmed/approved contests)
+    // Get all contests (USER view - confirmed and completed contests)
     app.get("/contests", async (req, res) => {
-      const result = await contestsCollection
-        .find({ status: "Confirmed" })
-        .toArray();
-      res.send(result);
+      try {
+        const result = await contestsCollection
+          .find({
+            status: { $in: ["Confirmed", "Completed"] },
+          })
+          .toArray();
+        res.send(result);
+      } catch (err) {
+        console.error("Error fetching contests for user view:", err);
+        res.status(500).send({ error: "Failed to fetch contests" });
+      }
     });
 
     // --- ADMIN MANAGEMENT ROUTES ---
@@ -829,6 +836,83 @@ async function run() {
       } catch (err) {
         console.error("Error fetching winning contests:", err);
         res.status(500).send({ error: "Failed to fetch winning contests" });
+      }
+    });
+
+    // --- NEW API ROUTE: Get Participant Stats and Profile ---
+    app.get("/my-stats", verifyJWT, async (req, res) => {
+      try {
+        const email = req.tokenEmail;
+
+        // 1. Get Participation Count (from ordersCollection)
+        const participationCount = await ordersCollection.countDocuments({
+          participant: email,
+        });
+
+        // 2. Get Win Count (from contestsCollection)
+        const winCount = await contestsCollection.countDocuments({
+          "winner.email": email,
+          status: "Completed",
+        });
+
+        // 3. Get User Profile Data
+        const userProfile = await usersCollection.findOne(
+          { email },
+          {
+            projection: {
+              _id: 0,
+              name: 1,
+              email: 1,
+              photo: 1,
+              role: 1,
+              bio: 1,
+            },
+          }
+        );
+
+        // Calculate Win Percentage
+        let winPercentage = 0;
+        if (participationCount > 0) {
+          winPercentage = (winCount / participationCount) * 100;
+        }
+
+        res.send({
+          participationCount,
+          winCount,
+          winPercentage: winPercentage.toFixed(2), // 2 decimal places
+          profile: userProfile,
+        });
+      } catch (err) {
+        console.error("Error fetching user stats:", err);
+        res.status(500).send({ error: "Failed to fetch user stats" });
+      }
+    });
+
+    // user-profile-update`
+    app.patch("/user-profile-update", verifyJWT, async (req, res) => {
+      try {
+        const email = req.tokenEmail;
+        const { name, photo, bio } = req.body;
+
+        const updateDoc = {
+          $set: {
+            name: name,
+            photo: photo,
+            bio: bio,
+            lastUpdated: new Date(),
+          },
+        };
+
+        const result = await usersCollection.updateOne({ email }, updateDoc);
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ message: "User not found." });
+        }
+
+        res.send({ message: "Profile updated successfully!", result });
+      } catch (err) {
+        console.error("Error updating user profile:", err);
+        res.status(500).send({ error: "Failed to update profile" });
       }
     });
 
