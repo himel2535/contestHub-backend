@@ -763,7 +763,7 @@ async function run() {
       }
     });
 
-    // 💡 New API: Get Top Winners ranked by the number of contests won
+    //  Get Top Winners ranked by the number of contests won
     app.get("/top-winners-ranking", async (req, res) => {
       try {
         const ranking = await contestsCollection
@@ -801,6 +801,34 @@ async function run() {
       } catch (err) {
         console.error("Error fetching top winners ranking:", err);
         res.status(500).send({ error: "Failed to fetch top winners ranking" });
+      }
+    });
+
+    // Get all contests where the current user is declared the winner
+    app.get("/my-winning-contests", verifyJWT, async (req, res) => {
+      try {
+        const winnerEmail = req.tokenEmail;
+
+        const winningContests = await contestsCollection
+          .find({
+            status: "Completed",
+            "winner.email": winnerEmail,
+          })
+          .project({
+            _id: 1,
+            name: 1,
+            category: 1,
+            prizeMoney: 1,
+            image: 1,
+            winner: 1,
+          })
+          .sort({ "winner.declaredAt": -1 })
+          .toArray();
+
+        res.send(winningContests);
+      } catch (err) {
+        console.error("Error fetching winning contests:", err);
+        res.status(500).send({ error: "Failed to fetch winning contests" });
       }
     });
 
