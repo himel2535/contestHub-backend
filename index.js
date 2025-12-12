@@ -620,13 +620,13 @@ async function run() {
     });
 
     // get all creator request to admin
-    app.get("/creator-requests", verifyJWT, async (req, res) => {
+    app.get("/creator-requests", verifyJWT,verifyADMIN, async (req, res) => {
       const result = await creatorRequestsCollection.find().toArray();
       res.send(result);
     });
 
     // get all users for admin
-    app.get("/users", verifyJWT, async (req, res) => {
+    app.get("/users", verifyJWT,verifyADMIN, async (req, res) => {
       const adminEmail = req.tokenEmail;
       const result = await usersCollection
         .find({ email: { $ne: adminEmail } })
@@ -634,7 +634,8 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/update-role", verifyJWT, async (req, res) => {
+    // ---update role (admin)
+    app.patch("/update-role", verifyJWT,verifyADMIN, async (req, res) => {
       const { email, role } = req.body;
       const result = await usersCollection.updateOne(
         { email },
