@@ -596,17 +596,29 @@ async function run() {
 
     // get all creator request to admin
     app.get("/creator-requests", verifyJWT, async (req, res) => {
-      const result = await creatorRequestsCollection.find().toArray()
+      const result = await creatorRequestsCollection.find().toArray();
       res.send(result);
     });
 
-    app.patch("/update-role",verifyJWT,async(req,res)=>{
-      const {email,role}=req.body
-      const result=await usersCollection.updateOne({email},{$set:{role}})
-      await creatorRequestsCollection.deleteOne({email})
+    // get all users for admin
+    app.get("/users", verifyJWT, async (req, res) => {
+      const adminEmail = req.tokenEmail;
+      const result = await usersCollection
+        .find({ email: { $ne: adminEmail } })
+        .toArray();
+      res.send(result);
+    });
 
-      res.send(result)
-    })
+    app.patch("/update-role", verifyJWT, async (req, res) => {
+      const { email, role } = req.body;
+      const result = await usersCollection.updateOne(
+        { email },
+        { $set: { role } }
+      );
+      await creatorRequestsCollection.deleteOne({ email });
+
+      res.send(result);
+    });
 
     // Test DB connection
     await client.db("admin").command({ ping: 1 });
