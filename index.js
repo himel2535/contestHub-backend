@@ -59,7 +59,7 @@ async function run() {
     const ordersCollection = db.collection("orders");
     const submissionsCollection = db.collection("submissions");
     const usersCollection = db.collection("users");
-    const creatorRequestsCollection=db.collection("creatorRequests")
+    const creatorRequestsCollection = db.collection("creatorRequests");
 
     //--- API Endpoints ---//
 
@@ -582,13 +582,29 @@ async function run() {
     });
 
     // save become creator--
-    app.post("/become-creator",verifyJWT,async(req,res)=>{
-      const email=req.tokenEmail
-      const alreadyExists=await creatorRequestsCollection.findOne({email})
-      if(alreadyExists){
-        return res.status(409).send({message:"Already requested to being Contest Creator"})
+    app.post("/become-creator", verifyJWT, async (req, res) => {
+      const email = req.tokenEmail;
+      const alreadyExists = await creatorRequestsCollection.findOne({ email });
+      if (alreadyExists) {
+        return res
+          .status(409)
+          .send({ message: "Already requested to being Contest Creator" });
       }
-      const result=await creatorRequestsCollection.insertOne({email})
+      const result = await creatorRequestsCollection.insertOne({ email });
+      res.send(result);
+    });
+
+    // get all creator request to admin
+    app.get("/creator-requests", verifyJWT, async (req, res) => {
+      const result = await creatorRequestsCollection.find().toArray()
+      res.send(result);
+    });
+
+    app.patch("/update-role",verifyJWT,async(req,res)=>{
+      const {email,role}=req.body
+      const result=await usersCollection.updateOne({email},{$set:{role}})
+      await creatorRequestsCollection.deleteOne({email})
+
       res.send(result)
     })
 
