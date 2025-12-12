@@ -8,7 +8,6 @@ const admin = require("firebase-admin");
 const port = process.env.PORT || 3000;
 
 // Firebase setup
-// ⚠️ Note: Ensure FB_SERVICE_KEY is correctly set in your .env file
 const decoded = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString(
   "utf-8"
 );
@@ -22,14 +21,14 @@ const app = express();
 // Middleware
 app.use(
   cors({
-    origin: [process.env.CLIENT_DOMAIN], // ⚠️ Check if CLIENT_DOMAIN is correct
+    origin: [process.env.CLIENT_DOMAIN],
     credentials: true,
     optionSuccessStatus: 200,
   })
 );
 app.use(express.json());
 
-// JWT middleware (Placeholder: Implement in production if needed)
+// JWT middleware
 const verifyJWT = async (req, res, next) => {
   const token = req?.headers?.authorization?.split(" ")[1];
   if (!token) return res.status(401).send({ message: "Unauthorized Access!" });
@@ -88,11 +87,112 @@ async function run() {
 
     //--- API Endpoints ---//
 
-    // Get all contests
+    // Get all contests (USER view - only confirmed/approved contests)
     app.get("/contests", async (req, res) => {
-      const result = await contestsCollection.find().toArray();
+      const result = await contestsCollection
+        .find({ status: "Confirmed" })
+        .toArray();
       res.send(result);
     });
+
+
+    // --- ADMIN MANAGEMENT ROUTES ---
+
+    // 1. Get all contests for management (Admin only)
+    app.get("/all-contests-admin", verifyJWT, verifyADMIN, async (req, res) => {
+      try {
+        // Find all contests regardless of status
+        const result = await contestsCollection.find().toArray();
+        res.send(result);
+      } catch (err) {
+        console.error("Error fetching all contests for admin:", err);
+        res.status(500).send({ error: "Failed to fetch contests for admin" });
+      }
+    });
+
+    // 2. Confirm/Approve or Reject a Contest (Admin only)
+    app.patch(
+      "/contest-status/:id",
+      verifyJWT,
+      verifyADMIN,
+      async (req, res) => {
+        try {
+          const { id } = req.params;
+          const { status } = req.body; // status: 'Confirmed' or 'Rejected'
+
+          if (!ObjectId.isValid(id)) {
+            return res.status(400).send({ message: "Invalid Contest ID" });
+          }
+
+          // Ensure status is a valid value
+          if (!["Confirmed", "Rejected"].includes(status)) {
+            return res
+              .status(400)
+              .send({ message: "Invalid status value provided" });
+          }
+
+          const updateDoc = {
+            $set: {
+              status: status,
+              approvedBy: req.tokenEmail,
+              approvedAt: new Date(),
+            },
+          };
+
+          const result = await contestsCollection.updateOne(
+            { _id: new ObjectId(id) },
+            updateDoc
+          );
+
+          if (result.matchedCount === 0) {
+            return res.status(404).send({ message: "Contest not found." });
+          }
+
+          res.send({
+            message: `Contest status updated to ${status} successfully!`,
+            result,
+          });
+        } catch (err) {
+          console.error("Error updating contest status:", err);
+          res.status(500).send({ error: "Failed to update contest status" });
+        }
+      }
+    );
+
+    // 3. Delete Contest by ID (Admin only - for PERMANENT DELETION)
+    app.delete(
+      "/contests-delete/:id",
+      verifyJWT,
+      verifyADMIN,
+      async (req, res) => {
+        try {
+          const { id } = req.params;
+
+          if (!ObjectId.isValid(id)) {
+            return res.status(400).send({ message: "Invalid Contest ID" });
+          }
+
+          const result = await contestsCollection.deleteOne({
+            _id: new ObjectId(id),
+          });
+
+          if (result.deletedCount === 0)
+            return res.status(404).send({ message: "Contest not found" });
+
+          // Optional: Delete related submissions and orders
+          // await submissionsCollection.deleteMany({ contestId: id });
+          // await ordersCollection.deleteMany({ contestId: id });
+
+          res.send({ message: "Contest deleted successfully" });
+        } catch (err) {
+          res
+            .status(500)
+            .send({ message: "Failed to delete contest", error: err });
+        }
+      }
+    );
+
+    // --- END ADMIN MANAGEMENT ROUTES ---
 
     // Get single contest with ID validation
     app.get("/contest/:id", async (req, res) => {
@@ -117,7 +217,6 @@ async function run() {
         if (!result)
           return res.status(404).send({ error: "Contest not found" });
 
-        // Fix: Date object check to prevent .toISOString() on strings
         if (result.deadline && result.deadline instanceof Date) {
           result.deadline = result.deadline.toISOString();
         }
@@ -134,7 +233,7 @@ async function run() {
       }
     });
 
-    // Create contest
+    // Create contest (Contest Creator only)
     app.post("/contests", verifyJWT, verifyCREATOR, async (req, res) => {
       try {
         const data = req.body;
@@ -142,7 +241,7 @@ async function run() {
           image: data.image,
           name: data.name,
           description: data.description,
-          status: data.status || "Pending", // Default status
+          status: "Pending",
           participantsCount: Number(data.participantsCount) || 0,
           prizeMoney: Number(data.prizeMoney) || 0,
           contestFee: Number(data.contestFee) || 0,
@@ -161,121 +260,197 @@ async function run() {
     });
 
     //  my-inventory for contest creator (used in front-end)
-    app.get("/my-inventory/:email",verifyJWT,verifyCREATOR, async (req, res) => {
-      try {
-        const email = req.params.email;
-        const result = await contestsCollection
-          .find({
-            "contestCreator.email": email,
-          })
-          .toArray();
-        res.send(result);
-      } catch (err) {
-        console.error("Error fetching creator inventory:", err);
-        res.status(500).send({ error: "Failed to fetch inventory" });
-      }
-    });
+    app.get(
+      "/my-inventory/:email",
+      verifyJWT,
+      verifyCREATOR,
+      async (req, res) => {
+        try {
+          const email = req.params.email;
 
-    // Delete contest by ID
-    app.delete("/contests-delete/:id", async (req, res) => {
-      try {
-        const { id } = req.params;
-        const result = await contestsCollection.deleteOne({
-          _id: new ObjectId(id),
-        });
-        if (result.deletedCount === 0)
-          return res.status(404).send({ message: "Contest not found" });
-        res.send({ message: "Contest deleted successfully" });
-      } catch (err) {
-        res
-          .status(500)
-          .send({ message: "Failed to delete contest", error: err });
+          const result = await contestsCollection
+            .find({
+              "contestCreator.email": email,
+            })
+            .toArray();
+          res.send(result);
+        } catch (err) {
+          console.error("Error fetching creator inventory:", err);
+          res.status(500).send({ error: "Failed to fetch inventory" });
+        }
       }
-    });
+    );
 
     // Update contest
-    app.put("/contests-update/:id", async (req, res) => {
-      try {
-        const { id } = req.params;
-        const updatedData = req.body;
+    app.put(
+      "/contests-update/:id",
+      verifyJWT,
+      verifyCREATOR,
+      async (req, res) => {
+        try {
+          const { id } = req.params;
+          const updatedData = req.body;
 
-        // Ensure deadline is converted to Date object if present
-        if (updatedData.deadline && typeof updatedData.deadline === "string") {
-          updatedData.deadline = new Date(updatedData.deadline);
+          if (
+            updatedData.deadline &&
+            typeof updatedData.deadline === "string"
+          ) {
+            updatedData.deadline = new Date(updatedData.deadline);
+          }
+
+          // Prevent creator from changing status directly
+          delete updatedData.status;
+
+          const result = await contestsCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: updatedData }
+          );
+
+          res.send({ message: "Contest updated successfully!", result });
+        } catch (err) {
+          res
+            .status(500)
+            .send({ message: "Failed to update contest", error: err });
         }
-
-        const result = await contestsCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $set: updatedData }
-        );
-
-        res.send({ message: "Contest updated successfully!", result });
-      } catch (err) {
-        res
-          .status(500)
-          .send({ message: "Failed to update contest", error: err });
       }
-    });
+    );
 
     // Declare Contest Winner
-    app.patch("/contests/winner/:contestId", async (req, res) => {
-      try {
-        const { contestId } = req.params;
-        const winnerData = req.body; // winnerData-তে winnerName, winnerEmail, submissionId, winnerPhotoUrl থাকবে
+    app.patch(
+      "/contests/winner/:contestId",
+      verifyJWT,
+      verifyCREATOR,
+      async (req, res) => {
+        try {
+          const { contestId } = req.params;
+          const winnerData = req.body;
 
-        if (!ObjectId.isValid(contestId)) {
-          return res.status(400).send({ message: "Invalid Contest ID" });
-        }
+          if (!ObjectId.isValid(contestId)) {
+            return res.status(400).send({ message: "Invalid Contest ID" });
+          }
 
-        const contest = await contestsCollection.findOne({
-          _id: new ObjectId(contestId),
-        });
-
-        if (!contest) {
-          return res.status(404).send({ message: "Contest not found." });
-        }
-
-        // 💡 যদিAlready Winner Declared করা থাকে
-        if (contest.winner) {
-          return res.status(400).send({
-            message: "Winner has already been declared for this contest.",
+          const contest = await contestsCollection.findOne({
+            _id: new ObjectId(contestId),
           });
-        }
 
-        const updateDoc = {
-          $set: {
-            winner: {
-              name: winnerData.winnerName,
-              email: winnerData.winnerEmail,
-              photo: winnerData.winnerPhoto,
-              submissionId: winnerData.submissionId,
-              declaredAt: new Date(),
+          if (!contest) {
+            return res.status(404).send({ message: "Contest not found." });
+          }
+
+          // Check if Already Winner Declared
+          if (contest.winner) {
+            return res.status(400).send({
+              message: "Winner has already been declared for this contest.",
+            });
+          }
+
+          // Ensure the contest is Confirmed before declaring winner
+          if (contest.status !== "Confirmed") {
+            return res.status(400).send({
+              message: "Contest must be Confirmed to declare a winner.",
+            });
+          }
+
+          const updateDoc = {
+            $set: {
+              winner: {
+                name: winnerData.winnerName,
+                email: winnerData.winnerEmail,
+                photo: winnerData.winnerPhoto,
+                submissionId: winnerData.submissionId,
+                declaredAt: new Date(),
+              },
+              status: "Completed",
             },
-            status: "Completed",
-          },
-        };
+          };
 
-        const result = await contestsCollection.updateOne(
-          { _id: new ObjectId(contestId) },
-          updateDoc
-        );
+          const result = await contestsCollection.updateOne(
+            { _id: new ObjectId(contestId) },
+            updateDoc
+          );
 
-        if (result.matchedCount === 0) {
-          return res.status(404).send({ message: "Contest not found." });
+          if (result.matchedCount === 0) {
+            return res.status(404).send({ message: "Contest not found." });
+          }
+
+     
+          await submissionsCollection.updateOne(
+            { _id: new ObjectId(winnerData.submissionId) },
+            { $set: { status: "Winner" } }
+          );
+
+          res.send({ message: "Winner declared successfully!", result });
+        } catch (err) {
+          console.error("Error declaring winner:", err);
+          res.status(500).send({ error: "Failed to declare winner" });
         }
-
-        // 💡 উইনার ঘোষণার পর সাবমিশন স্ট্যাটাস আপডেট করা যেতে পারে (ঐচ্ছিক)
-        await submissionsCollection.updateOne(
-          { _id: new ObjectId(winnerData.submissionId) },
-          { $set: { status: "Winner" } }
-        );
-
-        res.send({ message: "Winner declared successfully!", result });
-      } catch (err) {
-        console.error("Error declaring winner:", err);
-        res.status(500).send({ error: "Failed to declare winner" });
       }
-    });
+    );
+
+
+    // Contest Creator Delete Contest (Only if contest is Pending)
+    app.delete(
+      "/creator-contests-delete/:id",
+      verifyJWT,
+      verifyCREATOR,
+      async (req, res) => {
+        try {
+          const { id } = req.params;
+          const creatorEmail = req.tokenEmail;
+
+          if (!ObjectId.isValid(id)) {
+            return res.status(400).send({ message: "Invalid Contest ID" });
+          }
+
+          // 💡 1. Find the contest and ensure it is Pending
+          const contest = await contestsCollection.findOne({
+            _id: new ObjectId(id),
+          });
+
+          if (!contest) {
+            return res.status(404).send({ message: "Contest not found." });
+          }
+
+          if (contest.status !== "Pending") {
+            return res
+              .status(403)
+              .send({
+                message:
+                  "Contests can only be deleted if the status is Pending.",
+              });
+          }
+
+          // 💡 2. Ensure the user trying to delete is the actual creator
+          if (contest.contestCreator.email !== creatorEmail) {
+            return res
+              .status(403)
+              .send({
+                message: "Forbidden: You are not the creator of this contest.",
+              });
+          }
+
+          // 💡 3. Proceed with deletion
+          const result = await contestsCollection.deleteOne({
+            _id: new ObjectId(id),
+          });
+
+          if (result.deletedCount === 0)
+            return res
+              .status(404)
+              .send({ message: "Contest not found during deletion" });
+
+          res.send({ message: "Contest deleted successfully by creator" });
+        } catch (err) {
+          console.error("Error deleting contest by creator:", err);
+          res
+            .status(500)
+            .send({
+              message: "Failed to delete contest by creator",
+              error: err,
+            });
+        }
+      }
+    );
 
     // Submit task
     app.post("/submit-task", async (req, res) => {
@@ -308,7 +483,7 @@ async function run() {
               },
               unit_amount: paymentInfo.contestFee * 100,
             },
-            quantity: 1, // Only 1 registration per transaction
+            quantity: 1,
           },
         ],
         customer_email: paymentInfo.participant.email,
@@ -388,15 +563,20 @@ async function run() {
     });
 
     // get all participation manage data for contest creator
-    app.get("/manage-contests/:email",verifyJWT,verifyCREATOR, async (req, res) => {
-      const email = req.params.email;
-      const result = await ordersCollection
-        .find({
-          "contestCreator.email": email,
-        })
-        .toArray();
-      res.send(result);
-    });
+    app.get(
+      "/manage-contests/:email",
+      verifyJWT,
+      verifyCREATOR,
+      async (req, res) => {
+        const email = req.params.email;
+        const result = await ordersCollection
+          .find({
+            "contestCreator.email": email,
+          })
+          .toArray();
+        res.send(result);
+      }
+    );
 
     // Get all submissions for a specific contest ID
     app.get("/contest-submissions/:contestId", async (req, res) => {
@@ -409,7 +589,7 @@ async function run() {
 
         const submissions = await submissionsCollection
           .find({
-            contestId: contestId, // submissionsCollection এ contestId string হিসেবে সেভ করা আছে।
+            contestId: contestId,
           })
           .toArray();
 
@@ -444,38 +624,45 @@ async function run() {
       }
     );
 
-    // Get all submissions for the contests created by the contest creator (via email) - kept for reference
-    app.get("/creator-submissions/:email",verifyJWT,verifyCREATOR, async (req, res) => {
-      try {
-        const creatorEmail = req.params.email;
+    // Get all submissions for the contests created by the contest creator
+    app.get(
+      "/creator-submissions/:email",
+      verifyJWT,
+      verifyCREATOR,
+      async (req, res) => {
+        try {
+          const creatorEmail = req.params.email;
 
-        const creatorContests = await contestsCollection
-          .find({
-            "contestCreator.email": creatorEmail,
-          })
-          .project({ _id: 1 })
-          .toArray();
+          const creatorContests = await contestsCollection
+            .find({
+              "contestCreator.email": creatorEmail,
+            })
+            .project({ _id: 1 })
+            .toArray();
 
-        const contestIds = creatorContests.map((contest) =>
-          contest._id.toString()
-        );
+          const contestIds = creatorContests.map((contest) =>
+            contest._id.toString()
+          );
 
-        if (contestIds.length === 0) {
-          return res.send([]);
+          if (contestIds.length === 0) {
+            return res.send([]);
+          }
+
+          const submissions = await submissionsCollection
+            .find({
+              contestId: { $in: contestIds },
+            })
+            .toArray();
+
+          res.send(submissions);
+        } catch (err) {
+          console.error("Error fetching creator submissions:", err);
+          res
+            .status(500)
+            .send({ error: "Failed to fetch creator submissions" });
         }
-
-        const submissions = await submissionsCollection
-          .find({
-            contestId: { $in: contestIds },
-          })
-          .toArray();
-
-        res.send(submissions);
-      } catch (err) {
-        console.error("Error fetching creator submissions:", err);
-        res.status(500).send({ error: "Failed to fetch creator submissions" });
       }
-    });
+    );
 
     // --winners in leaderboard--
     app.get("/winners-leaderboard", async (req, res) => {
@@ -485,7 +672,7 @@ async function run() {
           .sort({ "winner.declaredAt": -1 })
           .limit(6)
           .project({
-            name: 1, // Contest Name
+            name: 1,
             prizeMoney: 1,
             winner: 1,
             category: 1,
@@ -544,7 +731,7 @@ async function run() {
               },
             },
             {
-              // 2. winner.email
+              // Group by winner.email
               $group: {
                 _id: "$winner.email",
                 totalWins: { $sum: 1 },
@@ -585,16 +772,12 @@ async function run() {
         email: userData.email,
       };
       const alreadyExists = await usersCollection.findOne(query);
-      console.log("already exist", !!alreadyExists);
       if (alreadyExists) {
-        console.log("updating user info....");
         const result = await usersCollection.updateOne(query, {
           $set: { lastLoggedIn: new Date().toISOString() },
         });
         return res.send(result);
       }
-
-      console.log("saving new user info....");
 
       const result = await usersCollection.insertOne(userData);
       res.send(result);
@@ -620,13 +803,13 @@ async function run() {
     });
 
     // get all creator request to admin
-    app.get("/creator-requests", verifyJWT,verifyADMIN, async (req, res) => {
+    app.get("/creator-requests", verifyJWT, verifyADMIN, async (req, res) => {
       const result = await creatorRequestsCollection.find().toArray();
       res.send(result);
     });
 
     // get all users for admin
-    app.get("/users", verifyJWT,verifyADMIN, async (req, res) => {
+    app.get("/users", verifyJWT, verifyADMIN, async (req, res) => {
       const adminEmail = req.tokenEmail;
       const result = await usersCollection
         .find({ email: { $ne: adminEmail } })
@@ -635,7 +818,7 @@ async function run() {
     });
 
     // ---update role (admin)
-    app.patch("/update-role", verifyJWT,verifyADMIN, async (req, res) => {
+    app.patch("/update-role", verifyJWT, verifyADMIN, async (req, res) => {
       const { email, role } = req.body;
       const result = await usersCollection.updateOne(
         { email },
