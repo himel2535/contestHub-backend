@@ -984,6 +984,254 @@ async function run() {
       res.send(result);
     });
 
+
+    // -------START STATE API ROUTE--------
+
+    // --- Get Comprehensive Customer Statistics ---
+    app.get("/customer-stats", verifyJWT, async (req, res) => {
+      try {
+        const email = req.tokenEmail;
+
+        // 1. Get Basic Counts (Participation & Wins)
+        const participationCount = await ordersCollection.countDocuments({
+          participant: email,
+        });
+
+        const winCount = await contestsCollection.countDocuments({
+          "winner.email": email,
+          status: "Completed",
+        });
+
+        // 2. Aggregate Participation by Category (for chart data)
+        const categoryStats = await ordersCollection
+          .aggregate([
+            { $match: { participant: email } },
+            // Join orders with contests to get the category
+            {
+              $lookup: {
+                from: "contests",
+                localField: "contestId",
+                foreignField: "_id",
+                as: "contestDetails",
+              },
+            },
+            { $unwind: "$contestDetails" },
+            // Group by category and count
+            {
+              $group: {
+                _id: "$contestDetails.category",
+                count: { $sum: 1 },
+              },
+            },
+            { $sort: { count: -1 } },
+          ])
+          .toArray();
+
+        // 3. Calculate Win Percentage
+        let winPercentage = 0;
+        if (participationCount > 0) {
+          winPercentage = (winCount / participationCount) * 100;
+        }
+
+        res.send({
+          participationCount,
+          winCount,
+          winPercentage: winPercentage.toFixed(2),
+          categoryStats,
+          // Note: You can add highestPrizeMoney here if needed
+        });
+      } catch (err) {
+        console.error("Error fetching customer statistics:", err);
+        res.status(500).send({ error: "Failed to fetch statistics" });
+      }
+    });
+
+    // ---  Get Comprehensive Creator Statistics ---
+    app.get("/creator-stats", verifyJWT, verifyCREATOR, async (req, res) => {
+      try {
+        const creatorEmail = req.tokenEmail;
+
+        // 1. Total Contests Created
+        const totalContests = await contestsCollection.countDocuments({
+          "contestCreator.email": creatorEmail,
+        });
+
+        // 2. Aggregate Total Earnings and Participations
+        const statsResult = await contestsCollection
+          .aggregate([
+            {
+              $match: {
+                "contestCreator.email": creatorEmail,
+                status: { $in: ["Pending", "Confirmed", "Completed"] },
+              },
+            },
+
+            //  Lookup with $toString to reliably match ObjectId ($_id) with String (orders.contestId)
+            {
+              $lookup: {
+                from: "orders",
+                let: { contest_id: "$_id" },
+                pipeline: [
+                  {
+                    $match: {
+                      $expr: {
+                        $or: [
+                          {
+                            $eq: ["$contestId", { $toString: "$$contest_id" }],
+                          },
+                          { $eq: ["$contestId", "$$contest_id"] },
+                        ],
+                      },
+                    },
+                  },
+                ],
+                as: "participations",
+              },
+            },
+
+            // 3. Unwind participations to process each order
+            {
+              $unwind: {
+                path: "$participations",
+                preserveNullAndEmptyArrays: true,
+              },
+            },
+
+            // 4. Group and calculate totals
+            {
+              $group: {
+                _id: null,
+                // totalRevenue: Sum contestFee only if the participation field is not null
+                totalRevenue: {
+                  $sum: {
+                    $cond: [
+                      { $ne: ["$participations", null] },
+                      "$participations.contestFee",
+                      0,
+                    ],
+                  },
+                },
+                // totalParticipants: Count only if participation exists
+                totalParticipants: {
+                  $sum: {
+                    $cond: [{ $ne: ["$participations", null] }, 1, 0],
+                  },
+                },
+
+                // Count contests by status (from the contests' original status)
+                pendingContests: {
+                  $sum: { $cond: [{ $eq: ["$status", "Pending"] }, 1, 0] },
+                },
+                confirmedContests: {
+                  $sum: { $cond: [{ $eq: ["$status", "Confirmed"] }, 1, 0] },
+                },
+                completedContests: {
+                  $sum: { $cond: [{ $eq: ["$status", "Completed"] }, 1, 0] },
+                },
+              },
+            },
+
+            // 5. Project the final output structure
+            {
+              $project: {
+                _id: 0,
+                totalRevenue: 1,
+                totalParticipants: 1,
+                pendingContests: 1,
+                confirmedContests: 1,
+                completedContests: 1,
+              },
+            },
+          ])
+          .toArray();
+
+        const defaultStats = {
+          totalRevenue: 0,
+          totalParticipants: 0,
+          pendingContests: 0,
+          confirmedContests: 0,
+          completedContests: 0,
+        };
+
+        const finalStats =
+          statsResult.length > 0 ? statsResult[0] : defaultStats;
+
+        res.send({
+          totalContests,
+          ...finalStats,
+        });
+      } catch (err) {
+        console.error("Error fetching creator statistics:", err);
+        res.status(500).send({ error: "Failed to fetch statistics" });
+      }
+    });
+
+    // --- NEW API ROUTE: Get Comprehensive Admin Statistics ---
+    app.get("/admin-stats", verifyJWT, verifyADMIN, async (req, res) => {
+      try {
+        // 1. Total Users
+        const totalUsers = await usersCollection.countDocuments();
+
+        // 2. Total Contests Created
+        const totalContests = await contestsCollection.countDocuments();
+
+        // 3. Aggregate Total Revenue and Total Orders (Participations)
+        // We only need aggregation on the ordersCollection
+        const statsResult = await ordersCollection
+          .aggregate([
+            {
+              $group: {
+                _id: null,
+                totalRevenue: { $sum: "$contestFee" }, // Sum of all contest fees
+                totalOrders: { $sum: 1 }, // Count of all orders/participations
+              },
+            },
+            {
+              $project: {
+                _id: 0,
+                totalRevenue: 1,
+                totalOrders: 1,
+              },
+            },
+          ])
+          .toArray();
+
+        // Default stats if no orders exist
+        const { totalRevenue = 0, totalOrders = 0 } = statsResult[0] || {};
+
+        // 4. Contest Status Breakdown for a chart (optional but useful)
+        const statusBreakdown = await contestsCollection
+          .aggregate([
+            {
+              $group: {
+                _id: "$status",
+                count: { $sum: 1 },
+              },
+            },
+          ])
+          .toArray();
+
+        // Reformat status breakdown into an object for easy access
+        const formattedStatus = statusBreakdown.reduce((acc, item) => {
+          acc[item._id] = item.count;
+          return acc;
+        }, {});
+
+        res.send({
+          totalUsers,
+          totalContests,
+          totalRevenue,
+          totalOrders,
+          statusBreakdown: formattedStatus,
+        });
+      } catch (err) {
+        console.error("Error fetching admin statistics:", err);
+        res.status(500).send({ error: "Failed to fetch admin statistics" });
+      }
+    });
+
+    // --- END STATE API ROUTE ---
+
     // Test DB connection
     await client.db("admin").command({ ping: 1 });
     console.log("Successfully connected to MongoDB!");
