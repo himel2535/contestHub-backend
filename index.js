@@ -85,16 +85,22 @@ async function run() {
       next();
     };
 
+
     //--- API Endpoints ---//
 
-    // Get all contests (USER view - confirmed and completed contests)
     app.get("/contests", async (req, res) => {
       try {
-        const result = await contestsCollection
-          .find({
-            status: { $in: ["Confirmed", "Completed"] },
-          })
-          .toArray();
+        const contestType = req.query.type;
+        const query = {
+          status: { $in: ["Confirmed", "Completed"] },
+        };
+
+        if (contestType) {
+          query.category = { $regex: contestType, $options: "i" };
+        }
+
+        const result = await contestsCollection.find(query).toArray();
+
         res.send(result);
       } catch (err) {
         console.error("Error fetching contests for user view:", err);
@@ -983,7 +989,6 @@ async function run() {
 
       res.send(result);
     });
-
 
     // -------START STATE API ROUTE--------
 
