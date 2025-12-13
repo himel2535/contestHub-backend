@@ -5,7 +5,7 @@ const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const admin = require("firebase-admin");
 
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 5000;
 
 // Firebase setup
 const decoded = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString(
@@ -59,6 +59,7 @@ async function run() {
     const submissionsCollection = db.collection("submissions");
     const usersCollection = db.collection("users");
     const creatorRequestsCollection = db.collection("creatorRequests");
+    const contactMessagesCollection = db.collection("contacts");
 
     // ---role middlewares---
     const verifyADMIN = async (req, res, next) => {
@@ -85,12 +86,16 @@ async function run() {
       next();
     };
 
-
     //--- API Endpoints ---//
 
     app.get("/contests", async (req, res) => {
       try {
         const contestType = req.query.type;
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+
+        const skip = (page - 1) * limit;
+
         const query = {
           status: { $in: ["Confirmed", "Completed"] },
         };
@@ -99,9 +104,21 @@ async function run() {
           query.category = { $regex: contestType, $options: "i" };
         }
 
-        const result = await contestsCollection.find(query).toArray();
+        const totalContests = await contestsCollection.countDocuments(query);
 
-        res.send(result);
+        const result = await contestsCollection
+          .find(query)
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+
+        res.send({
+          contests: result,
+          totalContests: totalContests,
+          currentPage: page,
+          totalPages: Math.ceil(totalContests / limit),
+          limit: limit,
+        });
       } catch (err) {
         console.error("Error fetching contests for user view:", err);
         res.status(500).send({ error: "Failed to fetch contests" });
@@ -109,18 +126,6 @@ async function run() {
     });
 
     // --- ADMIN MANAGEMENT ROUTES ---
-
-    // 1. Get all contests for management (Admin only)
-    app.get("/all-contests-admin", verifyJWT, verifyADMIN, async (req, res) => {
-      try {
-        // Find all contests regardless of status
-        const result = await contestsCollection.find().toArray();
-        res.send(result);
-      } catch (err) {
-        console.error("Error fetching all contests for admin:", err);
-        res.status(500).send({ error: "Failed to fetch contests for admin" });
-      }
-    });
 
     // 2. Confirm/Approve or Reject a Contest (Admin only)
     app.patch(
@@ -130,7 +135,7 @@ async function run() {
       async (req, res) => {
         try {
           const { id } = req.params;
-          const { status } = req.body; // status: 'Confirmed' or 'Rejected'
+          const { status } = req.body;
 
           if (!ObjectId.isValid(id)) {
             return res.status(400).send({ message: "Invalid Contest ID" });
@@ -203,6 +208,42 @@ async function run() {
         }
       }
     );
+
+    //  GET All Contests for Admin (ManageContests.jsx)
+    app.get("/all-contests-admin", verifyJWT, verifyADMIN, async (req, res) => {
+      try {
+        const contests = await contestsCollection
+          .find({}) // Admin সব Contest দেখতে পাবে
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        res.status(200).send(contests);
+      } catch (err) {
+        console.error("Error fetching all contests for admin:", err);
+        res.status(500).send({
+          message: "Failed to fetch contests for admin.",
+          error: err.message,
+        });
+      }
+    });
+
+    // get contact message for admin
+    app.get("/contact-message", verifyJWT, verifyADMIN, async (req, res) => {
+      try {
+        const messages = await contactMessagesCollection
+          .find({})
+          .sort({ receivedAt: -1 })
+          .toArray();
+
+        res.status(200).send(messages);
+      } catch (error) {
+        console.error("Error fetching contact messages for admin:", error);
+        res.status(500).send({
+          message: "Failed to fetch messages.",
+          error: error.message,
+        });
+      }
+    });
 
     // --- END ADMIN MANAGEMENT ROUTES ---
 
@@ -990,10 +1031,8 @@ async function run() {
       res.send(result);
     });
 
-    // -------START STATE API ROUTE--------
-
-    // --- Get Comprehensive Customer Statistics ---
-    app.get("/customer-stats", verifyJWT, async (req, res) => {
+    // --- Get Comprehensive Participant Statistics ---
+    app.get("/Participant-stats", verifyJWT, async (req, res) => {
       try {
         const email = req.tokenEmail;
 
@@ -1046,7 +1085,7 @@ async function run() {
           // Note: You can add highestPrizeMoney here if needed
         });
       } catch (err) {
-        console.error("Error fetching customer statistics:", err);
+        console.error("Error fetching Participant statistics:", err);
         res.status(500).send({ error: "Failed to fetch statistics" });
       }
     });
@@ -1232,6 +1271,39 @@ async function run() {
       } catch (err) {
         console.error("Error fetching admin statistics:", err);
         res.status(500).send({ error: "Failed to fetch admin statistics" });
+      }
+    });
+
+    // POST Contact Message Route
+    app.post("/contact", async (req, res) => {
+      try {
+        const messageData = req.body;
+
+        const { name, email, message } = messageData;
+        if (!name || !email || !message) {
+          return res
+            .status(400)
+            .send({ message: "Name, email, and message are required." });
+        }
+
+        const doc = {
+          name: name,
+          email: email,
+          message: message,
+          receivedAt: new Date(),
+          isRead: false,
+        };
+
+        const result = await contactMessagesCollection.insertOne(doc);
+
+        res.status(201).send({
+          message:
+            "Message received successfully! We will get back to you soon.",
+          insertedId: result.insertedId,
+        });
+      } catch (err) {
+        console.error("Error saving contact message:", err);
+        res.status(500).send({ error: "Failed to process your message." });
       }
     });
 
